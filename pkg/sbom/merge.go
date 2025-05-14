@@ -10,11 +10,31 @@ import (
 )
 
 // MergeSBOMs merges multiple SBOM files into a single SBOM file
-func MergeSBOMs(inputFiles []string, outputFile string) error {
+func MergeSBOMs(inputFiles []string, outputFile string, componentName string, componentVersion string) error {
 	// Create a new BOM to hold the merged result
 	mergedBom := cyclonedx.NewBOM()
 	mergedBom.SerialNumber = "urn:uuid:" + uuid.New().String()
 	mergedBom.Version = 1
+
+	// Use provided component name or default
+	if componentName == "" {
+		componentName = "merged-sbom"
+	}
+
+	// Generate a unique BOMRef for the merged SBOM
+	mergedBomRef := componentName + "-" + uuid.New().String()
+
+	// Create the component for the merged SBOM
+	mergedComponent := cyclonedx.Component{
+		BOMRef: mergedBomRef,
+		Name:   componentName,
+		Type:   cyclonedx.ComponentTypeApplication,
+	}
+
+	// Add version if provided
+	if componentVersion != "" {
+		mergedComponent.Version = componentVersion
+	}
 
 	// Set metadata
 	mergedBom.Metadata = &cyclonedx.Metadata{
@@ -29,10 +49,14 @@ func MergeSBOMs(inputFiles []string, outputFile string) error {
 				},
 			},
 		},
+		Component: &mergedComponent,
 	}
 
 	// Initialize components slice
 	mergedBom.Components = &[]cyclonedx.Component{}
+
+	// Track components with metadata.component for dependencies
+	var metadataComponents []cyclonedx.Component
 
 	// Process each input file
 	for _, file := range inputFiles {
@@ -40,6 +64,18 @@ func MergeSBOMs(inputFiles []string, outputFile string) error {
 		bom, err := ReadSBOMFile(file)
 		if err != nil {
 			return fmt.Errorf("failed to read SBOM file %s: %w", file, err)
+		}
+
+		// Check if the SBOM has a metadata.component
+		if bom.Metadata != nil && bom.Metadata.Component != nil {
+			// Add the metadata component to our tracking list
+			metadataComponents = append(metadataComponents, *bom.Metadata.Component)
+
+			// Add the metadata component to the components list if it's not already there
+			if mergedBom.Components == nil {
+				mergedBom.Components = &[]cyclonedx.Component{}
+			}
+			*mergedBom.Components = append(*mergedBom.Components, *bom.Metadata.Component)
 		}
 
 		// Merge components
@@ -64,6 +100,28 @@ func MergeSBOMs(inputFiles []string, outputFile string) error {
 
 	// Remove duplicate dependencies
 	mergedBom.Dependencies = deduplicateDependencies(mergedBom.Dependencies)
+
+	// Create dependencies for metadata components
+	if len(metadataComponents) > 0 {
+		// Ensure we have a dependencies section
+		if mergedBom.Dependencies == nil {
+			mergedBom.Dependencies = &[]cyclonedx.Dependency{}
+		}
+
+		// Create a dependency from the merged SBOM to each metadata component
+		mergedBomDependency := cyclonedx.Dependency{
+			Ref:          mergedBomRef,
+			Dependencies: &[]string{},
+		}
+
+		// Add each metadata component as a dependency
+		for _, comp := range metadataComponents {
+			*mergedBomDependency.Dependencies = append(*mergedBomDependency.Dependencies, comp.BOMRef)
+		}
+
+		// Add the merged SBOM dependency to the dependencies list
+		*mergedBom.Dependencies = append(*mergedBom.Dependencies, mergedBomDependency)
+	}
 
 	// Write the merged SBOM to the output file
 	return WriteSBOMFile(mergedBom, outputFile)

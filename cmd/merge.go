@@ -7,7 +7,11 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var outputFile string
+var (
+	outputFile             string
+	mergedComponentName    string
+	mergedComponentVersion string
+)
 
 // mergeCmd represents the merge command
 var mergeCmd = &cobra.Command{
@@ -23,7 +27,7 @@ Example:
 		inputFiles := args
 
 		// Merge the SBOM files
-		err := sbom.MergeSBOMs(inputFiles, outputFile)
+		err := sbom.MergeSBOMs(inputFiles, outputFile, mergedComponentName, mergedComponentVersion)
 		if err != nil {
 			return fmt.Errorf("failed to merge SBOM files: %w", err)
 		}
@@ -38,4 +42,6 @@ func init() {
 
 	// Add flags for the merge command
 	mergeCmd.Flags().StringVarP(&outputFile, "output", "o", "merged.sbom.json", "Output file for the merged SBOM")
+	mergeCmd.Flags().StringVar(&mergedComponentName, "merged-component-name", "merged-sbom", "Name for the component in the merged SBOM's metadata")
+	mergeCmd.Flags().StringVar(&mergedComponentVersion, "merged-component-version", "", "Version for the component in the merged SBOM's metadata")
 }

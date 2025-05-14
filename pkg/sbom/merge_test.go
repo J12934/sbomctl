@@ -61,7 +61,7 @@ func TestMergeSBOMs(t *testing.T) {
 	}
 
 	// Test merging SBOMs
-	err = MergeSBOMs([]string{sbom1Path, sbom2Path}, outputPath)
+	err = MergeSBOMs([]string{sbom1Path, sbom2Path}, outputPath, "", "")
 	if err != nil {
 		t.Fatalf("Failed to merge SBOMs: %v", err)
 	}
@@ -169,7 +169,7 @@ func TestMergeSBOMsWithDependencies(t *testing.T) {
 	}
 
 	// Test merging SBOMs
-	err = MergeSBOMs([]string{sbom1Path, sbom2Path}, outputPath)
+	err = MergeSBOMs([]string{sbom1Path, sbom2Path}, outputPath, "", "")
 	if err != nil {
 		t.Fatalf("Failed to merge SBOMs: %v", err)
 	}
@@ -287,7 +287,7 @@ func TestDependencyDeduplication(t *testing.T) {
 	}
 
 	// Test merging SBOMs
-	err = MergeSBOMs([]string{sbom1Path, sbom2Path}, outputPath)
+	err = MergeSBOMs([]string{sbom1Path, sbom2Path}, outputPath, "", "")
 	if err != nil {
 		t.Fatalf("Failed to merge SBOMs: %v", err)
 	}
@@ -347,5 +347,379 @@ func TestDependencyDeduplication(t *testing.T) {
 		if !found {
 			t.Errorf("Expected component-a to depend on %s, but it was not found", dep)
 		}
+	}
+}
+
+func TestMergeSBOMsWithMetadataComponent(t *testing.T) {
+	// Create test directory
+	testDir := filepath.Join(os.TempDir(), "sbomctl-test-metadata-component")
+	err := os.MkdirAll(testDir, 0755)
+	if err != nil {
+		t.Fatalf("Failed to create test directory: %v", err)
+	}
+	defer os.RemoveAll(testDir)
+
+	// Create test SBOM files
+	sbom1Path := filepath.Join(testDir, "sbom1.json")
+	sbom2Path := filepath.Join(testDir, "sbom2.json")
+	outputPath := filepath.Join(testDir, "merged.json")
+
+	// Create first SBOM with metadata.component
+	sbom1 := cyclonedx.NewBOM()
+	sbom1.Metadata = &cyclonedx.Metadata{
+		Component: &cyclonedx.Component{
+			BOMRef:  "component-root-1",
+			Name:    "root-component-1",
+			Version: "1.0.0",
+			Type:    cyclonedx.ComponentTypeApplication,
+		},
+	}
+	sbom1.Components = &[]cyclonedx.Component{
+		{
+			BOMRef:  "component-a",
+			Name:    "component-a",
+			Version: "1.0.0",
+			Type:    cyclonedx.ComponentTypeLibrary,
+		},
+		{
+			BOMRef:  "component-b",
+			Name:    "component-b",
+			Version: "2.0.0",
+			Type:    cyclonedx.ComponentTypeLibrary,
+		},
+	}
+	sbom1.Dependencies = &[]cyclonedx.Dependency{
+		{
+			Ref: "component-root-1",
+			Dependencies: &[]string{
+				"component-a",
+				"component-b",
+			},
+		},
+	}
+
+	// Create second SBOM with metadata.component
+	sbom2 := cyclonedx.NewBOM()
+	sbom2.Metadata = &cyclonedx.Metadata{
+		Component: &cyclonedx.Component{
+			BOMRef:  "component-root-2",
+			Name:    "root-component-2",
+			Version: "1.0.0",
+			Type:    cyclonedx.ComponentTypeApplication,
+		},
+	}
+	sbom2.Components = &[]cyclonedx.Component{
+		{
+			BOMRef:  "component-c",
+			Name:    "component-c",
+			Version: "3.0.0",
+			Type:    cyclonedx.ComponentTypeLibrary,
+		},
+		{
+			BOMRef:  "component-d",
+			Name:    "component-d",
+			Version: "4.0.0",
+			Type:    cyclonedx.ComponentTypeLibrary,
+		},
+	}
+	sbom2.Dependencies = &[]cyclonedx.Dependency{
+		{
+			Ref: "component-root-2",
+			Dependencies: &[]string{
+				"component-c",
+				"component-d",
+			},
+		},
+	}
+
+	// Write test SBOMs to files
+	if err := WriteSBOMFile(sbom1, sbom1Path); err != nil {
+		t.Fatalf("Failed to write test SBOM 1: %v", err)
+	}
+	if err := WriteSBOMFile(sbom2, sbom2Path); err != nil {
+		t.Fatalf("Failed to write test SBOM 2: %v", err)
+	}
+
+	// Test merging SBOMs
+	err = MergeSBOMs([]string{sbom1Path, sbom2Path}, outputPath, "", "")
+	if err != nil {
+		t.Fatalf("Failed to merge SBOMs: %v", err)
+	}
+
+	// Read the merged SBOM
+	mergedBom, err := ReadSBOMFile(outputPath)
+	if err != nil {
+		t.Fatalf("Failed to read merged SBOM: %v", err)
+	}
+
+	// Verify the merged SBOM has a metadata.component
+	if mergedBom.Metadata == nil || mergedBom.Metadata.Component == nil {
+		t.Fatal("Merged SBOM has no metadata.component")
+	}
+
+	// Verify the merged SBOM's metadata.component has the expected name
+	if mergedBom.Metadata.Component.Name != "merged-sbom" {
+		t.Fatalf("Expected merged SBOM metadata.component name to be 'merged-sbom', got '%s'", mergedBom.Metadata.Component.Name)
+	}
+
+	// Verify the merged SBOM has the expected components
+	if mergedBom.Components == nil {
+		t.Fatal("Merged SBOM has no components")
+	}
+
+	components := *mergedBom.Components
+	// Should have 6 components: component-a, component-b, component-c, component-d, component-root-1, component-root-2
+	if len(components) != 6 {
+		t.Fatalf("Expected 6 components in merged SBOM, got %d", len(components))
+	}
+
+	// Check for expected components
+	componentRefs := make(map[string]bool)
+	for _, c := range components {
+		componentRefs[c.BOMRef] = true
+	}
+
+	expectedComponents := []string{"component-a", "component-b", "component-c", "component-d", "component-root-1", "component-root-2"}
+	for _, ref := range expectedComponents {
+		if !componentRefs[ref] {
+			t.Errorf("Expected component %s in merged SBOM, but it was not found", ref)
+		}
+	}
+
+	// Verify the merged SBOM has the expected dependencies
+	if mergedBom.Dependencies == nil {
+		t.Fatal("Merged SBOM has no dependencies")
+	}
+
+	// Find the merged-sbom dependency
+	var mergedBomDep *cyclonedx.Dependency
+	for _, dep := range *mergedBom.Dependencies {
+		if dep.Ref == mergedBom.Metadata.Component.BOMRef {
+			mergedBomDep = &dep
+			break
+		}
+	}
+
+	if mergedBomDep == nil {
+		t.Fatal("Merged SBOM has no dependency for the merged-sbom component")
+	}
+
+	// Verify the merged-sbom depends on both root components
+	if mergedBomDep.Dependencies == nil {
+		t.Fatal("merged-sbom dependency has no dependsOn")
+	}
+
+	dependsOn := *mergedBomDep.Dependencies
+	if len(dependsOn) != 2 {
+		t.Fatalf("Expected merged-sbom to depend on 2 components, got %d", len(dependsOn))
+	}
+
+	// Check that merged-sbom depends on both root components
+	expectedDeps := map[string]bool{
+		"component-root-1": false,
+		"component-root-2": false,
+	}
+
+	for _, dep := range dependsOn {
+		expectedDeps[dep] = true
+	}
+
+	for dep, found := range expectedDeps {
+		if !found {
+			t.Errorf("Expected merged-sbom to depend on %s, but it was not found", dep)
+		}
+	}
+}
+
+// TestMergeSBOMsWithMixedMetadataComponent tests merging SBOMs where some have metadata.component and some don't
+func TestMergeSBOMsWithMixedMetadataComponent(t *testing.T) {
+	// Create test directory
+	testDir := filepath.Join(os.TempDir(), "sbomctl-test-mixed-metadata")
+	err := os.MkdirAll(testDir, 0755)
+	if err != nil {
+		t.Fatalf("Failed to create test directory: %v", err)
+	}
+	defer os.RemoveAll(testDir)
+
+	// Create test SBOM files
+	sbom1Path := filepath.Join(testDir, "sbom1.json")
+	sbom2Path := filepath.Join(testDir, "sbom2.json")
+	outputPath := filepath.Join(testDir, "merged.json")
+
+	// Create first SBOM with metadata.component
+	sbom1 := cyclonedx.NewBOM()
+	sbom1.Metadata = &cyclonedx.Metadata{
+		Component: &cyclonedx.Component{
+			BOMRef:  "component-root-1",
+			Name:    "root-component-1",
+			Version: "1.0.0",
+			Type:    cyclonedx.ComponentTypeApplication,
+		},
+	}
+	sbom1.Components = &[]cyclonedx.Component{
+		{
+			BOMRef:  "component-a",
+			Name:    "component-a",
+			Version: "1.0.0",
+			Type:    cyclonedx.ComponentTypeLibrary,
+		},
+	}
+
+	// Create second SBOM without metadata.component
+	sbom2 := cyclonedx.NewBOM()
+	sbom2.Components = &[]cyclonedx.Component{
+		{
+			BOMRef:  "component-b",
+			Name:    "component-b",
+			Version: "2.0.0",
+			Type:    cyclonedx.ComponentTypeLibrary,
+		},
+	}
+
+	// Write test SBOMs to files
+	if err := WriteSBOMFile(sbom1, sbom1Path); err != nil {
+		t.Fatalf("Failed to write test SBOM 1: %v", err)
+	}
+	if err := WriteSBOMFile(sbom2, sbom2Path); err != nil {
+		t.Fatalf("Failed to write test SBOM 2: %v", err)
+	}
+
+	// Test merging SBOMs
+	err = MergeSBOMs([]string{sbom1Path, sbom2Path}, outputPath, "", "")
+	if err != nil {
+		t.Fatalf("Failed to merge SBOMs: %v", err)
+	}
+
+	// Read the merged SBOM
+	mergedBom, err := ReadSBOMFile(outputPath)
+	if err != nil {
+		t.Fatalf("Failed to read merged SBOM: %v", err)
+	}
+
+	// Verify the merged SBOM has a metadata.component
+	if mergedBom.Metadata == nil || mergedBom.Metadata.Component == nil {
+		t.Fatal("Merged SBOM has no metadata.component")
+	}
+
+	// Verify the merged SBOM has the expected components
+	if mergedBom.Components == nil {
+		t.Fatal("Merged SBOM has no components")
+	}
+
+	components := *mergedBom.Components
+	// Should have 3 components: component-a, component-b, component-root-1
+	if len(components) != 3 {
+		t.Fatalf("Expected 3 components in merged SBOM, got %d", len(components))
+	}
+
+	// Check for expected components
+	componentRefs := make(map[string]bool)
+	for _, c := range components {
+		componentRefs[c.BOMRef] = true
+	}
+
+	expectedComponents := []string{"component-a", "component-b", "component-root-1"}
+	for _, ref := range expectedComponents {
+		if !componentRefs[ref] {
+			t.Errorf("Expected component %s in merged SBOM, but it was not found", ref)
+		}
+	}
+
+	// Verify the merged SBOM has the expected dependencies
+	if mergedBom.Dependencies == nil {
+		t.Fatal("Merged SBOM has no dependencies")
+	}
+
+	// Verify the merged SBOM has at least one dependency
+	dependencies := *mergedBom.Dependencies
+	if len(dependencies) == 0 {
+		t.Fatal("Merged SBOM has no dependencies")
+	}
+}
+
+func TestMergeSBOMsWithCustomComponentNameAndVersion(t *testing.T) {
+	// Create test directory
+	testDir := filepath.Join(os.TempDir(), "sbomctl-test-custom-component")
+	err := os.MkdirAll(testDir, 0755)
+	if err != nil {
+		t.Fatalf("Failed to create test directory: %v", err)
+	}
+	defer os.RemoveAll(testDir)
+
+	// Create test SBOM files
+	sbom1Path := filepath.Join(testDir, "sbom1.json")
+	sbom2Path := filepath.Join(testDir, "sbom2.json")
+	outputPath := filepath.Join(testDir, "merged.json")
+
+	// Create simple SBOMs for testing
+	sbom1 := cyclonedx.NewBOM()
+	sbom1.Components = &[]cyclonedx.Component{
+		{
+			BOMRef:  "component-a",
+			Name:    "component-a",
+			Version: "1.0.0",
+			Type:    cyclonedx.ComponentTypeLibrary,
+		},
+	}
+
+	sbom2 := cyclonedx.NewBOM()
+	sbom2.Components = &[]cyclonedx.Component{
+		{
+			BOMRef:  "component-b",
+			Name:    "component-b",
+			Version: "2.0.0",
+			Type:    cyclonedx.ComponentTypeLibrary,
+		},
+	}
+
+	// Write test SBOMs to files
+	if err := WriteSBOMFile(sbom1, sbom1Path); err != nil {
+		t.Fatalf("Failed to write test SBOM 1: %v", err)
+	}
+	if err := WriteSBOMFile(sbom2, sbom2Path); err != nil {
+		t.Fatalf("Failed to write test SBOM 2: %v", err)
+	}
+
+	// Custom component name and version
+	customName := "my-custom-sbom"
+	customVersion := "1.2.3"
+
+	// Test merging SBOMs with custom component name and version
+	err = MergeSBOMs([]string{sbom1Path, sbom2Path}, outputPath, customName, customVersion)
+	if err != nil {
+		t.Fatalf("Failed to merge SBOMs: %v", err)
+	}
+
+	// Read the merged SBOM
+	mergedBom, err := ReadSBOMFile(outputPath)
+	if err != nil {
+		t.Fatalf("Failed to read merged SBOM: %v", err)
+	}
+
+	// Verify the merged SBOM has a metadata.component
+	if mergedBom.Metadata == nil || mergedBom.Metadata.Component == nil {
+		t.Fatal("Merged SBOM has no metadata.component")
+	}
+
+	// Verify the merged SBOM's metadata.component has the expected name
+	if mergedBom.Metadata.Component.Name != customName {
+		t.Fatalf("Expected merged SBOM metadata.component name to be '%s', got '%s'",
+			customName, mergedBom.Metadata.Component.Name)
+	}
+
+	// Verify the merged SBOM's metadata.component has the expected version
+	if mergedBom.Metadata.Component.Version != customVersion {
+		t.Fatalf("Expected merged SBOM metadata.component version to be '%s', got '%s'",
+			customVersion, mergedBom.Metadata.Component.Version)
+	}
+
+	// Verify the merged SBOM has the expected components
+	if mergedBom.Components == nil {
+		t.Fatal("Merged SBOM has no components")
+	}
+
+	components := *mergedBom.Components
+	if len(components) != 2 {
+		t.Fatalf("Expected 2 components in merged SBOM, got %d", len(components))
 	}
 }
