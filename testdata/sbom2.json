@@ -1,0 +1,46 @@
+{
+  "bomFormat": "CycloneDX",
+  "specVersion": "1.4",
+  "serialNumber": "urn:uuid:4f782798-486a-52e6-b40f-b59032a70b80",
+  "version": 1,
+  "metadata": {
+    "timestamp": "2023-01-02T12:00:00Z",
+    "tools": {
+      "tools": [
+        {
+          "vendor": "Another Vendor",
+          "name": "Another SBOM Generator",
+          "version": "2.0.0"
+        }
+      ]
+    }
+  },
+  "components": [
+    {
+      "type": "library",
+      "name": "example-lib-2",
+      "version": "2.3.4",
+      "purl": "pkg:npm/example-lib-2@2.3.4",
+      "bom-ref": "pkg:npm/example-lib-2@2.3.4"
+    },
+    {
+      "type": "library",
+      "name": "example-lib-3",
+      "version": "3.4.5",
+      "purl": "pkg:npm/example-lib-3@3.4.5",
+      "bom-ref": "pkg:npm/example-lib-3@3.4.5"
+    }
+  ],
+  "dependencies": [
+    {
+      "ref": "pkg:npm/example-lib-2@2.3.4",
+      "dependsOn": [
+        "pkg:npm/example-lib-3@3.4.5"
+      ]
+    },
+    {
+      "ref": "pkg:npm/example-lib-3@3.4.5",
+      "dependsOn": []
+    }
+  ]
+}
