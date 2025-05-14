@@ -723,3 +723,507 @@ func TestMergeSBOMsWithCustomComponentNameAndVersion(t *testing.T) {
 		t.Fatalf("Expected 2 components in merged SBOM, got %d", len(components))
 	}
 }
+
+func TestMergeSBOMsDeduplicatesToolsWithSameNameDifferentVendor(t *testing.T) {
+	// Create test directory
+	testDir := filepath.Join(os.TempDir(), "sbomctl-test-tools-vendor")
+	err := os.MkdirAll(testDir, 0755)
+	if err != nil {
+		t.Fatalf("Failed to create test directory: %v", err)
+	}
+	defer os.RemoveAll(testDir)
+
+	// Create test SBOM files
+	sbom1Path := filepath.Join(testDir, "sbom1.json")
+	sbom2Path := filepath.Join(testDir, "sbom2.json")
+	outputPath := filepath.Join(testDir, "merged.json")
+
+	// Create first SBOM with a tool that has vendor information
+	sbom1 := cyclonedx.NewBOM()
+	sbom1.Metadata = &cyclonedx.Metadata{
+		Tools: &cyclonedx.ToolsChoice{
+			Tools: &[]cyclonedx.Tool{
+				{
+					Name:    "trivy",
+					Version: "0.61.0",
+					Vendor:  "aquasecurity",
+				},
+			},
+		},
+	}
+	sbom1.Components = &[]cyclonedx.Component{
+		{
+			Name:    "component-a",
+			Version: "1.0.0",
+			Type:    cyclonedx.ComponentTypeLibrary,
+		},
+	}
+
+	// Create second SBOM with the same tool but without vendor information
+	sbom2 := cyclonedx.NewBOM()
+	sbom2.Metadata = &cyclonedx.Metadata{
+		Tools: &cyclonedx.ToolsChoice{
+			Tools: &[]cyclonedx.Tool{
+				{
+					Name:    "trivy",
+					Version: "0.61.0",
+					// No vendor
+				},
+			},
+		},
+	}
+	sbom2.Components = &[]cyclonedx.Component{
+		{
+			Name:    "component-b",
+			Version: "2.0.0",
+			Type:    cyclonedx.ComponentTypeLibrary,
+		},
+	}
+
+	// Write test SBOMs to files
+	if err := WriteSBOMFile(sbom1, sbom1Path); err != nil {
+		t.Fatalf("Failed to write test SBOM 1: %v", err)
+	}
+	if err := WriteSBOMFile(sbom2, sbom2Path); err != nil {
+		t.Fatalf("Failed to write test SBOM 2: %v", err)
+	}
+
+	// Test merging SBOMs
+	err = MergeSBOMs([]string{sbom1Path, sbom2Path}, outputPath, "", "")
+	if err != nil {
+		t.Fatalf("Failed to merge SBOMs: %v", err)
+	}
+
+	// Read the merged SBOM
+	mergedBom, err := ReadSBOMFile(outputPath)
+	if err != nil {
+		t.Fatalf("Failed to read merged SBOM: %v", err)
+	}
+
+	// Verify the merged SBOM has tools metadata
+	if mergedBom.Metadata == nil || mergedBom.Metadata.Tools == nil || mergedBom.Metadata.Tools.Tools == nil {
+		t.Fatal("Merged SBOM has no tools metadata")
+	}
+
+	// Verify the merged SBOM has only 2 tools (trivy and sbomctl)
+	tools := *mergedBom.Metadata.Tools.Tools
+	if len(tools) != 2 {
+		t.Fatalf("Expected 2 tools in merged SBOM (trivy and sbomctl), got %d", len(tools))
+	}
+
+	// Check that trivy appears only once
+	trivyCount := 0
+	var trivyTool cyclonedx.Tool
+	for _, tool := range tools {
+		if tool.Name == "trivy" {
+			trivyCount++
+			trivyTool = tool
+		}
+	}
+	if trivyCount != 1 {
+		t.Errorf("Expected trivy to appear once, but it appeared %d times", trivyCount)
+	}
+
+	// Verify that the trivy tool has vendor information
+	if trivyTool.Vendor != "aquasecurity" {
+		t.Errorf("Expected trivy tool to have vendor 'aquasecurity', but got '%s'", trivyTool.Vendor)
+	}
+}
+
+func TestMergeSBOMsWithToolsComponents(t *testing.T) {
+	// Create test directory
+	testDir := filepath.Join(os.TempDir(), "sbomctl-test-tools-components")
+	err := os.MkdirAll(testDir, 0755)
+	if err != nil {
+		t.Fatalf("Failed to create test directory: %v", err)
+	}
+	defer os.RemoveAll(testDir)
+
+	// Create test SBOM files
+	sbom1Path := filepath.Join(testDir, "sbom1.json")
+	sbom2Path := filepath.Join(testDir, "sbom2.json")
+	outputPath := filepath.Join(testDir, "merged.json")
+
+	// Create first SBOM with a tool in the components field
+	sbom1 := cyclonedx.NewBOM()
+	sbom1.Metadata = &cyclonedx.Metadata{
+		Tools: &cyclonedx.ToolsChoice{
+			Components: &[]cyclonedx.Component{
+				{
+					Type:      cyclonedx.ComponentTypeApplication,
+					Name:      "trivy",
+					Version:   "0.61.0",
+					Publisher: "aquasecurity",
+				},
+			},
+		},
+	}
+	sbom1.Components = &[]cyclonedx.Component{
+		{
+			Name:    "component-a",
+			Version: "1.0.0",
+			Type:    cyclonedx.ComponentTypeLibrary,
+		},
+	}
+
+	// Create second SBOM with a tool in the tools field
+	sbom2 := cyclonedx.NewBOM()
+	sbom2.Metadata = &cyclonedx.Metadata{
+		Tools: &cyclonedx.ToolsChoice{
+			Tools: &[]cyclonedx.Tool{
+				{
+					Name:    "Tool B",
+					Version: "2.0.0",
+					Vendor:  "Vendor B",
+				},
+			},
+		},
+	}
+	sbom2.Components = &[]cyclonedx.Component{
+		{
+			Name:    "component-b",
+			Version: "2.0.0",
+			Type:    cyclonedx.ComponentTypeLibrary,
+		},
+	}
+
+	// Write test SBOMs to files
+	if err := WriteSBOMFile(sbom1, sbom1Path); err != nil {
+		t.Fatalf("Failed to write test SBOM 1: %v", err)
+	}
+	if err := WriteSBOMFile(sbom2, sbom2Path); err != nil {
+		t.Fatalf("Failed to write test SBOM 2: %v", err)
+	}
+
+	// Test merging SBOMs
+	err = MergeSBOMs([]string{sbom1Path, sbom2Path}, outputPath, "", "")
+	if err != nil {
+		t.Fatalf("Failed to merge SBOMs: %v", err)
+	}
+
+	// Read the merged SBOM
+	mergedBom, err := ReadSBOMFile(outputPath)
+	if err != nil {
+		t.Fatalf("Failed to read merged SBOM: %v", err)
+	}
+
+	// Verify the merged SBOM has tools metadata
+	if mergedBom.Metadata == nil || mergedBom.Metadata.Tools == nil || mergedBom.Metadata.Tools.Tools == nil {
+		t.Fatal("Merged SBOM has no tools metadata")
+	}
+
+	// Verify the merged SBOM has all the expected tools (including sbomctl)
+	tools := *mergedBom.Metadata.Tools.Tools
+	if len(tools) != 3 {
+		t.Fatalf("Expected 3 tools in merged SBOM (trivy, Tool B, and sbomctl), got %d", len(tools))
+	}
+
+	// Check for expected tools
+	toolNames := make(map[string]bool)
+	for _, tool := range tools {
+		toolNames[tool.Name] = true
+	}
+
+	expectedTools := []string{"trivy", "Tool B", "sbomctl"}
+	for _, name := range expectedTools {
+		if !toolNames[name] {
+			t.Errorf("Expected tool %s in merged SBOM, but it was not found", name)
+		}
+	}
+}
+
+func TestMergeSBOMsWithRealTestData(t *testing.T) {
+	// Read the original SBOMs to debug
+	sbom1, err := ReadSBOMFile("../../testdata/sbom1.json")
+	if err != nil {
+		t.Fatalf("Failed to read SBOM 1: %v", err)
+	}
+
+	sbom2, err := ReadSBOMFile("../../testdata/sbom2.json")
+	if err != nil {
+		t.Fatalf("Failed to read SBOM 2: %v", err)
+	}
+
+	// Debug: Print tools from original SBOMs
+	if sbom1.Metadata != nil && sbom1.Metadata.Tools != nil {
+		t.Logf("SBOM 1 Tools: %+v", sbom1.Metadata.Tools)
+	} else {
+		t.Log("SBOM 1 has no tools")
+	}
+
+	if sbom2.Metadata != nil && sbom2.Metadata.Tools != nil {
+		t.Logf("SBOM 2 Tools: %+v", sbom2.Metadata.Tools)
+	} else {
+		t.Log("SBOM 2 has no tools")
+	}
+
+	// Create test directory
+	testDir := filepath.Join(os.TempDir(), "sbomctl-test-real-data")
+	err = os.MkdirAll(testDir, 0755)
+	if err != nil {
+		t.Fatalf("Failed to create test directory: %v", err)
+	}
+	defer os.RemoveAll(testDir)
+
+	// Output path for the merged SBOM
+	outputPath := filepath.Join(testDir, "merged.json")
+
+	// Test merging the real test data SBOMs
+	err = MergeSBOMs([]string{"../../testdata/sbom1.json", "../../testdata/sbom2.json"}, outputPath, "", "")
+	if err != nil {
+		t.Fatalf("Failed to merge SBOMs: %v", err)
+	}
+
+	// Read the merged SBOM
+	mergedBom, err := ReadSBOMFile(outputPath)
+	if err != nil {
+		t.Fatalf("Failed to read merged SBOM: %v", err)
+	}
+
+	// Verify the merged SBOM has tools metadata
+	if mergedBom.Metadata == nil || mergedBom.Metadata.Tools == nil || mergedBom.Metadata.Tools.Tools == nil {
+		t.Fatal("Merged SBOM has no tools metadata")
+	}
+
+	// Verify the merged SBOM has all the expected tools
+	tools := *mergedBom.Metadata.Tools.Tools
+	if len(tools) < 3 {
+		t.Fatalf("Expected at least 3 tools in merged SBOM (SBOM Generator, Another SBOM Generator, and sbomctl), got %d", len(tools))
+	}
+
+	// Check for expected tools
+	toolNames := make(map[string]bool)
+	for _, tool := range tools {
+		toolNames[tool.Name] = true
+	}
+
+	expectedTools := []string{"SBOM Generator", "Another SBOM Generator", "sbomctl"}
+	for _, name := range expectedTools {
+		if !toolNames[name] {
+			t.Errorf("Expected tool %s in merged SBOM, but it was not found", name)
+		}
+	}
+}
+
+func TestMergeSBOMsPreservesTools(t *testing.T) {
+	// Create test directory
+	testDir := filepath.Join(os.TempDir(), "sbomctl-test-tools")
+	err := os.MkdirAll(testDir, 0755)
+	if err != nil {
+		t.Fatalf("Failed to create test directory: %v", err)
+	}
+	defer os.RemoveAll(testDir)
+
+	// Create test SBOM files
+	sbom1Path := filepath.Join(testDir, "sbom1.json")
+	sbom2Path := filepath.Join(testDir, "sbom2.json")
+	outputPath := filepath.Join(testDir, "merged.json")
+
+	// Create first SBOM with a tool
+	sbom1 := cyclonedx.NewBOM()
+	sbom1.Metadata = &cyclonedx.Metadata{
+		Tools: &cyclonedx.ToolsChoice{
+			Tools: &[]cyclonedx.Tool{
+				{
+					Name:    "Tool A",
+					Version: "1.0.0",
+					Vendor:  "Vendor A",
+				},
+			},
+		},
+	}
+	sbom1.Components = &[]cyclonedx.Component{
+		{
+			Name:    "component-a",
+			Version: "1.0.0",
+			Type:    cyclonedx.ComponentTypeLibrary,
+		},
+	}
+
+	// Create second SBOM with a different tool
+	sbom2 := cyclonedx.NewBOM()
+	sbom2.Metadata = &cyclonedx.Metadata{
+		Tools: &cyclonedx.ToolsChoice{
+			Tools: &[]cyclonedx.Tool{
+				{
+					Name:    "Tool B",
+					Version: "2.0.0",
+					Vendor:  "Vendor B",
+				},
+			},
+		},
+	}
+	sbom2.Components = &[]cyclonedx.Component{
+		{
+			Name:    "component-b",
+			Version: "2.0.0",
+			Type:    cyclonedx.ComponentTypeLibrary,
+		},
+	}
+
+	// Write test SBOMs to files
+	if err := WriteSBOMFile(sbom1, sbom1Path); err != nil {
+		t.Fatalf("Failed to write test SBOM 1: %v", err)
+	}
+	if err := WriteSBOMFile(sbom2, sbom2Path); err != nil {
+		t.Fatalf("Failed to write test SBOM 2: %v", err)
+	}
+
+	// Test merging SBOMs
+	err = MergeSBOMs([]string{sbom1Path, sbom2Path}, outputPath, "", "")
+	if err != nil {
+		t.Fatalf("Failed to merge SBOMs: %v", err)
+	}
+
+	// Read the merged SBOM
+	mergedBom, err := ReadSBOMFile(outputPath)
+	if err != nil {
+		t.Fatalf("Failed to read merged SBOM: %v", err)
+	}
+
+	// Verify the merged SBOM has tools metadata
+	if mergedBom.Metadata == nil || mergedBom.Metadata.Tools == nil || mergedBom.Metadata.Tools.Tools == nil {
+		t.Fatal("Merged SBOM has no tools metadata")
+	}
+
+	// Verify the merged SBOM has all the expected tools (including sbomctl)
+	tools := *mergedBom.Metadata.Tools.Tools
+	if len(tools) != 3 {
+		t.Fatalf("Expected 3 tools in merged SBOM (Tool A, Tool B, and sbomctl), got %d", len(tools))
+	}
+
+	// Check for expected tools
+	toolNames := make(map[string]bool)
+	for _, tool := range tools {
+		toolNames[tool.Name] = true
+	}
+
+	expectedTools := []string{"Tool A", "Tool B", "sbomctl"}
+	for _, name := range expectedTools {
+		if !toolNames[name] {
+			t.Errorf("Expected tool %s in merged SBOM, but it was not found", name)
+		}
+	}
+}
+
+func TestMergeSBOMsDeduplicatesTools(t *testing.T) {
+	// Create test directory
+	testDir := filepath.Join(os.TempDir(), "sbomctl-test-tools-dedup")
+	err := os.MkdirAll(testDir, 0755)
+	if err != nil {
+		t.Fatalf("Failed to create test directory: %v", err)
+	}
+	defer os.RemoveAll(testDir)
+
+	// Create test SBOM files
+	sbom1Path := filepath.Join(testDir, "sbom1.json")
+	sbom2Path := filepath.Join(testDir, "sbom2.json")
+	outputPath := filepath.Join(testDir, "merged.json")
+
+	// Create first SBOM with a tool
+	sbom1 := cyclonedx.NewBOM()
+	sbom1.Metadata = &cyclonedx.Metadata{
+		Tools: &cyclonedx.ToolsChoice{
+			Tools: &[]cyclonedx.Tool{
+				{
+					Name:    "Common Tool",
+					Version: "1.0.0",
+					Vendor:  "Vendor X",
+				},
+				{
+					Name:    "Tool A",
+					Version: "1.0.0",
+					Vendor:  "Vendor A",
+				},
+			},
+		},
+	}
+	sbom1.Components = &[]cyclonedx.Component{
+		{
+			Name:    "component-a",
+			Version: "1.0.0",
+			Type:    cyclonedx.ComponentTypeLibrary,
+		},
+	}
+
+	// Create second SBOM with the same tool and a different one
+	sbom2 := cyclonedx.NewBOM()
+	sbom2.Metadata = &cyclonedx.Metadata{
+		Tools: &cyclonedx.ToolsChoice{
+			Tools: &[]cyclonedx.Tool{
+				{
+					Name:    "Common Tool",
+					Version: "1.0.0",
+					Vendor:  "Vendor X",
+				},
+				{
+					Name:    "Tool B",
+					Version: "2.0.0",
+					Vendor:  "Vendor B",
+				},
+			},
+		},
+	}
+	sbom2.Components = &[]cyclonedx.Component{
+		{
+			Name:    "component-b",
+			Version: "2.0.0",
+			Type:    cyclonedx.ComponentTypeLibrary,
+		},
+	}
+
+	// Write test SBOMs to files
+	if err := WriteSBOMFile(sbom1, sbom1Path); err != nil {
+		t.Fatalf("Failed to write test SBOM 1: %v", err)
+	}
+	if err := WriteSBOMFile(sbom2, sbom2Path); err != nil {
+		t.Fatalf("Failed to write test SBOM 2: %v", err)
+	}
+
+	// Test merging SBOMs
+	err = MergeSBOMs([]string{sbom1Path, sbom2Path}, outputPath, "", "")
+	if err != nil {
+		t.Fatalf("Failed to merge SBOMs: %v", err)
+	}
+
+	// Read the merged SBOM
+	mergedBom, err := ReadSBOMFile(outputPath)
+	if err != nil {
+		t.Fatalf("Failed to read merged SBOM: %v", err)
+	}
+
+	// Verify the merged SBOM has tools metadata
+	if mergedBom.Metadata == nil || mergedBom.Metadata.Tools == nil || mergedBom.Metadata.Tools.Tools == nil {
+		t.Fatal("Merged SBOM has no tools metadata")
+	}
+
+	// Verify the merged SBOM has all the expected tools (including sbomctl) with duplicates removed
+	tools := *mergedBom.Metadata.Tools.Tools
+	if len(tools) != 4 {
+		t.Fatalf("Expected 4 tools in merged SBOM (Common Tool, Tool A, Tool B, and sbomctl), got %d", len(tools))
+	}
+
+	// Check for expected tools
+	toolNames := make(map[string]bool)
+	for _, tool := range tools {
+		toolNames[tool.Name] = true
+	}
+
+	expectedTools := []string{"Common Tool", "Tool A", "Tool B", "sbomctl"}
+	for _, name := range expectedTools {
+		if !toolNames[name] {
+			t.Errorf("Expected tool %s in merged SBOM, but it was not found", name)
+		}
+	}
+
+	// Verify that Common Tool appears only once
+	commonToolCount := 0
+	for _, tool := range tools {
+		if tool.Name == "Common Tool" {
+			commonToolCount++
+		}
+	}
+	if commonToolCount != 1 {
+		t.Errorf("Expected Common Tool to appear once, but it appeared %d times", commonToolCount)
+	}
+}
