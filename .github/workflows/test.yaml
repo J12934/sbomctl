@@ -25,7 +25,7 @@ jobs:
         run: go build -v ./...
 
       - run: "go vet ./..."
-      - uses: dominikh/staticcheck-action@v1.2.0
+      - uses: dominikh/staticcheck-action@v1.3.1
         with:
           version: "2025.1.1"
 
