@@ -4,14 +4,15 @@ sbomctl is a CLI tool for managing Software Bill of Materials (SBOM) in the [Cyc
 
 It provides commands to inspect and merge SBOM files.
 
+At the moment this is mostly experimental, to deal with issues with the official [cyclonedx-cli](https://github.com/CycloneDX/cyclonedx-cli).
+The cyclone-dx which generally works pretty well, but has issues merging sboms when they have (some) overlapping dependencies. The merged sboms in the cases are invalid having multiple non-unique bomRefs.
+
 ## Installation
 
-Build from source (requires Go 1.18+):
+Build from source:
 
 ```sh
-git clone https://github.com/j12934/sbomctl.git
-cd sbomctl
-go build -o sbomctl
+go install github.com/j12934/sbomctl@latest
 ```
 
 ## Usage
