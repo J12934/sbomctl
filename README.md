@@ -47,16 +47,41 @@ sbomctl merge sbom1.json sbom2.json \
 
 Quickly display summary information about a CycloneDX SBOM file, including component counts, types, tools, and dependencies.
 
-**Example:**
-
 ```sh
-sbomctl inspect sbom.json
+$ sbomctl inspect scbctl.sbom.json
+File:           scbctl.sbom.json
+SBOM Format:    CycloneDX
+Spec Version:   1.6
+Serial Number:  urn:uuid:2c96b6c8-306d-490f-8c34-68eb4416a665
+Version:        1
+
+Metadata:
+  Timestamp:  2025-05-16T19:01:58+00:00
+  Tools:
+    - trivy (v0.62.1)
+
+Components:
+  Total Components:  20
+  Component Types:
+    - application:  1
+    - library:      19
+
+  Top Components (max 10):
+    Name                                  Version  Type     PURL
+    github.com/CycloneDX/cyclonedx-go     v0.9.2   library  pkg:golang/github.com/cyclonedx/cyclonedx-go@v0.9.2
+    github.com/fsnotify/fsnotify          v1.9.0   library  pkg:golang/github.com/fsnotify/fsnotify@v1.9.0
+    github.com/go-viper/mapstructure/v2   v2.2.1   library  pkg:golang/github.com/go-viper/mapstructure/v2@v2.2.1
+    github.com/google/uuid                v1.6.0   library  pkg:golang/github.com/google/uuid@v1.6.0
+    github.com/inconshreveable/mousetrap  v1.1.0   library  pkg:golang/github.com/inconshreveable/mousetrap@v1.1.0
+    github.com/j12934/sbomctl                      library  pkg:golang/github.com/j12934/sbomctl
+    github.com/pelletier/go-toml/v2       v2.2.4   library  pkg:golang/github.com/pelletier/go-toml/v2@v2.2.4
+    github.com/sagikazarmark/locafero     v0.9.0   library  pkg:golang/github.com/sagikazarmark/locafero@v0.9.0
+    github.com/sourcegraph/conc           v0.3.0   library  pkg:golang/github.com/sourcegraph/conc@v0.3.0
+    github.com/spf13/afero                v1.14.0  library  pkg:golang/github.com/spf13/afero@v1.14.0
+    ... and 10 more components
+
+Dependencies:
+  Total Dependencies:           21
+  Dependencies with dependsOn:  10
+  Max dependsOn count:          9
 ```
-
-This prints a summary with details such as:
-
-- SBOM format, version, and serial number
-- Metadata (timestamp, tools)
-- Number and types of components
-- Top components
-- Dependency statistics
