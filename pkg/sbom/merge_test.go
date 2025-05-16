@@ -742,11 +742,12 @@ func TestMergeSBOMsDeduplicatesToolsWithSameNameDifferentVendor(t *testing.T) {
 	sbom1 := cyclonedx.NewBOM()
 	sbom1.Metadata = &cyclonedx.Metadata{
 		Tools: &cyclonedx.ToolsChoice{
-			Tools: &[]cyclonedx.Tool{
+			Components: &[]cyclonedx.Component{
 				{
-					Name:    "trivy",
-					Version: "0.61.0",
-					Vendor:  "aquasecurity",
+					Name:      "trivy",
+					Version:   "0.61.0",
+					Publisher: "aquasecurity",
+					Type:      cyclonedx.ComponentTypeApplication,
 				},
 			},
 		},
@@ -763,11 +764,11 @@ func TestMergeSBOMsDeduplicatesToolsWithSameNameDifferentVendor(t *testing.T) {
 	sbom2 := cyclonedx.NewBOM()
 	sbom2.Metadata = &cyclonedx.Metadata{
 		Tools: &cyclonedx.ToolsChoice{
-			Tools: &[]cyclonedx.Tool{
+			Components: &[]cyclonedx.Component{
 				{
 					Name:    "trivy",
 					Version: "0.61.0",
-					// No vendor
+					Type:    cyclonedx.ComponentTypeApplication,
 				},
 			},
 		},
@@ -801,32 +802,32 @@ func TestMergeSBOMsDeduplicatesToolsWithSameNameDifferentVendor(t *testing.T) {
 	}
 
 	// Verify the merged SBOM has tools metadata
-	if mergedBom.Metadata == nil || mergedBom.Metadata.Tools == nil || mergedBom.Metadata.Tools.Tools == nil {
+	if mergedBom.Metadata == nil || mergedBom.Metadata.Tools == nil || mergedBom.Metadata.Tools.Components == nil {
 		t.Fatal("Merged SBOM has no tools metadata")
 	}
 
-	// Verify the merged SBOM has only 2 tools (trivy and sbomctl)
-	tools := *mergedBom.Metadata.Tools.Tools
+	// Verify the merged SBOM has only 2 tool components (trivy and sbomctl)
+	tools := *mergedBom.Metadata.Tools.Components
 	if len(tools) != 2 {
-		t.Fatalf("Expected 2 tools in merged SBOM (trivy and sbomctl), got %d", len(tools))
+		t.Fatalf("Expected 2 tool components in merged SBOM (trivy and sbomctl), got %d", len(tools))
 	}
 
 	// Check that trivy appears only once
 	trivyCount := 0
-	var trivyTool cyclonedx.Tool
-	for _, tool := range tools {
-		if tool.Name == "trivy" {
+	var trivyComp cyclonedx.Component
+	for _, comp := range tools {
+		if comp.Name == "trivy" {
 			trivyCount++
-			trivyTool = tool
+			trivyComp = comp
 		}
 	}
 	if trivyCount != 1 {
 		t.Errorf("Expected trivy to appear once, but it appeared %d times", trivyCount)
 	}
 
-	// Verify that the trivy tool has vendor information
-	if trivyTool.Vendor != "aquasecurity" {
-		t.Errorf("Expected trivy tool to have vendor 'aquasecurity', but got '%s'", trivyTool.Vendor)
+	// Verify that the trivy tool has publisher information
+	if trivyComp.Publisher != "aquasecurity" {
+		t.Errorf("Expected trivy tool to have publisher 'aquasecurity', but got '%s'", trivyComp.Publisher)
 	}
 }
 
@@ -866,15 +867,16 @@ func TestMergeSBOMsWithToolsComponents(t *testing.T) {
 		},
 	}
 
-	// Create second SBOM with a tool in the tools field
+	// Create second SBOM with a tool in the components field
 	sbom2 := cyclonedx.NewBOM()
 	sbom2.Metadata = &cyclonedx.Metadata{
 		Tools: &cyclonedx.ToolsChoice{
-			Tools: &[]cyclonedx.Tool{
+			Components: &[]cyclonedx.Component{
 				{
-					Name:    "Tool B",
-					Version: "2.0.0",
-					Vendor:  "Vendor B",
+					Name:      "Tool B",
+					Version:   "2.0.0",
+					Publisher: "Vendor B",
+					Type:      cyclonedx.ComponentTypeApplication,
 				},
 			},
 		},
@@ -908,20 +910,20 @@ func TestMergeSBOMsWithToolsComponents(t *testing.T) {
 	}
 
 	// Verify the merged SBOM has tools metadata
-	if mergedBom.Metadata == nil || mergedBom.Metadata.Tools == nil || mergedBom.Metadata.Tools.Tools == nil {
+	if mergedBom.Metadata == nil || mergedBom.Metadata.Tools == nil || mergedBom.Metadata.Tools.Components == nil {
 		t.Fatal("Merged SBOM has no tools metadata")
 	}
 
-	// Verify the merged SBOM has all the expected tools (including sbomctl)
-	tools := *mergedBom.Metadata.Tools.Tools
+	// Verify the merged SBOM has all the expected tool components (including sbomctl)
+	tools := *mergedBom.Metadata.Tools.Components
 	if len(tools) != 3 {
-		t.Fatalf("Expected 3 tools in merged SBOM (trivy, Tool B, and sbomctl), got %d", len(tools))
+		t.Fatalf("Expected 3 tool components in merged SBOM (trivy, Tool B, and sbomctl), got %d", len(tools))
 	}
 
-	// Check for expected tools
+	// Check for expected tool components
 	toolNames := make(map[string]bool)
-	for _, tool := range tools {
-		toolNames[tool.Name] = true
+	for _, comp := range tools {
+		toolNames[comp.Name] = true
 	}
 
 	expectedTools := []string{"trivy", "Tool B", "sbomctl"}
@@ -981,12 +983,12 @@ func TestMergeSBOMsWithRealTestData(t *testing.T) {
 	}
 
 	// Verify the merged SBOM has tools metadata
-	if mergedBom.Metadata == nil || mergedBom.Metadata.Tools == nil || mergedBom.Metadata.Tools.Tools == nil {
+	if mergedBom.Metadata == nil || mergedBom.Metadata.Tools == nil || mergedBom.Metadata.Tools.Components == nil {
 		t.Fatal("Merged SBOM has no tools metadata")
 	}
 
 	// Verify the merged SBOM has all the expected tools
-	tools := *mergedBom.Metadata.Tools.Tools
+	tools := *mergedBom.Metadata.Tools.Components
 	if len(tools) < 3 {
 		t.Fatalf("Expected at least 3 tools in merged SBOM (SBOM Generator, Another SBOM Generator, and sbomctl), got %d", len(tools))
 	}
@@ -1023,11 +1025,12 @@ func TestMergeSBOMsPreservesTools(t *testing.T) {
 	sbom1 := cyclonedx.NewBOM()
 	sbom1.Metadata = &cyclonedx.Metadata{
 		Tools: &cyclonedx.ToolsChoice{
-			Tools: &[]cyclonedx.Tool{
+			Components: &[]cyclonedx.Component{
 				{
-					Name:    "Tool A",
-					Version: "1.0.0",
-					Vendor:  "Vendor A",
+					Name:      "Tool A",
+					Version:   "1.0.0",
+					Publisher: "Vendor A",
+					Type:      cyclonedx.ComponentTypeApplication,
 				},
 			},
 		},
@@ -1044,11 +1047,12 @@ func TestMergeSBOMsPreservesTools(t *testing.T) {
 	sbom2 := cyclonedx.NewBOM()
 	sbom2.Metadata = &cyclonedx.Metadata{
 		Tools: &cyclonedx.ToolsChoice{
-			Tools: &[]cyclonedx.Tool{
+			Components: &[]cyclonedx.Component{
 				{
-					Name:    "Tool B",
-					Version: "2.0.0",
-					Vendor:  "Vendor B",
+					Name:      "Tool B",
+					Version:   "2.0.0",
+					Publisher: "Vendor B",
+					Type:      cyclonedx.ComponentTypeApplication,
 				},
 			},
 		},
@@ -1082,20 +1086,20 @@ func TestMergeSBOMsPreservesTools(t *testing.T) {
 	}
 
 	// Verify the merged SBOM has tools metadata
-	if mergedBom.Metadata == nil || mergedBom.Metadata.Tools == nil || mergedBom.Metadata.Tools.Tools == nil {
+	if mergedBom.Metadata == nil || mergedBom.Metadata.Tools == nil || mergedBom.Metadata.Tools.Components == nil {
 		t.Fatal("Merged SBOM has no tools metadata")
 	}
 
-	// Verify the merged SBOM has all the expected tools (including sbomctl)
-	tools := *mergedBom.Metadata.Tools.Tools
+	// Verify the merged SBOM has all the expected tool components (including sbomctl)
+	tools := *mergedBom.Metadata.Tools.Components
 	if len(tools) != 3 {
-		t.Fatalf("Expected 3 tools in merged SBOM (Tool A, Tool B, and sbomctl), got %d", len(tools))
+		t.Fatalf("Expected 3 tool components in merged SBOM (Tool A, Tool B, and sbomctl), got %d", len(tools))
 	}
 
-	// Check for expected tools
+	// Check for expected tool components
 	toolNames := make(map[string]bool)
-	for _, tool := range tools {
-		toolNames[tool.Name] = true
+	for _, comp := range tools {
+		toolNames[comp.Name] = true
 	}
 
 	expectedTools := []string{"Tool A", "Tool B", "sbomctl"}
@@ -1124,16 +1128,18 @@ func TestMergeSBOMsDeduplicatesTools(t *testing.T) {
 	sbom1 := cyclonedx.NewBOM()
 	sbom1.Metadata = &cyclonedx.Metadata{
 		Tools: &cyclonedx.ToolsChoice{
-			Tools: &[]cyclonedx.Tool{
+			Components: &[]cyclonedx.Component{
 				{
-					Name:    "Common Tool",
-					Version: "1.0.0",
-					Vendor:  "Vendor X",
+					Name:      "Common Tool",
+					Version:   "1.0.0",
+					Publisher: "Vendor X",
+					Type:      cyclonedx.ComponentTypeApplication,
 				},
 				{
-					Name:    "Tool A",
-					Version: "1.0.0",
-					Vendor:  "Vendor A",
+					Name:      "Tool A",
+					Version:   "1.0.0",
+					Publisher: "Vendor A",
+					Type:      cyclonedx.ComponentTypeApplication,
 				},
 			},
 		},
@@ -1150,16 +1156,18 @@ func TestMergeSBOMsDeduplicatesTools(t *testing.T) {
 	sbom2 := cyclonedx.NewBOM()
 	sbom2.Metadata = &cyclonedx.Metadata{
 		Tools: &cyclonedx.ToolsChoice{
-			Tools: &[]cyclonedx.Tool{
+			Components: &[]cyclonedx.Component{
 				{
-					Name:    "Common Tool",
-					Version: "1.0.0",
-					Vendor:  "Vendor X",
+					Name:      "Common Tool",
+					Version:   "1.0.0",
+					Publisher: "Vendor X",
+					Type:      cyclonedx.ComponentTypeApplication,
 				},
 				{
-					Name:    "Tool B",
-					Version: "2.0.0",
-					Vendor:  "Vendor B",
+					Name:      "Tool B",
+					Version:   "2.0.0",
+					Publisher: "Vendor B",
+					Type:      cyclonedx.ComponentTypeApplication,
 				},
 			},
 		},
@@ -1193,20 +1201,20 @@ func TestMergeSBOMsDeduplicatesTools(t *testing.T) {
 	}
 
 	// Verify the merged SBOM has tools metadata
-	if mergedBom.Metadata == nil || mergedBom.Metadata.Tools == nil || mergedBom.Metadata.Tools.Tools == nil {
+	if mergedBom.Metadata == nil || mergedBom.Metadata.Tools == nil || mergedBom.Metadata.Tools.Components == nil {
 		t.Fatal("Merged SBOM has no tools metadata")
 	}
 
-	// Verify the merged SBOM has all the expected tools (including sbomctl) with duplicates removed
-	tools := *mergedBom.Metadata.Tools.Tools
+	// Verify the merged SBOM has all the expected tool components (including sbomctl) with duplicates removed
+	tools := *mergedBom.Metadata.Tools.Components
 	if len(tools) != 4 {
-		t.Fatalf("Expected 4 tools in merged SBOM (Common Tool, Tool A, Tool B, and sbomctl), got %d", len(tools))
+		t.Fatalf("Expected 4 tool components in merged SBOM (Common Tool, Tool A, Tool B, and sbomctl), got %d", len(tools))
 	}
 
-	// Check for expected tools
+	// Check for expected tool components
 	toolNames := make(map[string]bool)
-	for _, tool := range tools {
-		toolNames[tool.Name] = true
+	for _, comp := range tools {
+		toolNames[comp.Name] = true
 	}
 
 	expectedTools := []string{"Common Tool", "Tool A", "Tool B", "sbomctl"}
@@ -1218,8 +1226,8 @@ func TestMergeSBOMsDeduplicatesTools(t *testing.T) {
 
 	// Verify that Common Tool appears only once
 	commonToolCount := 0
-	for _, tool := range tools {
-		if tool.Name == "Common Tool" {
+	for _, comp := range tools {
+		if comp.Name == "Common Tool" {
 			commonToolCount++
 		}
 	}

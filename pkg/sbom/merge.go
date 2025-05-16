@@ -37,17 +37,18 @@ func MergeSBOMs(inputFiles []string, outputFile string, componentName string, co
 		mergedComponent.Version = componentVersion
 	}
 
-	// Initialize metadata with sbomctl tool
-	sbomctlTool := cyclonedx.Tool{
-		Name:    "sbomctl",
-		Version: "0.1.0",
-		Vendor:  "j12934",
+	// Initialize metadata with sbomctl tool as a component
+	sbomctlToolComponent := cyclonedx.Component{
+		Name:      "sbomctl",
+		Version:   "0.1.0",
+		Publisher: "j12934",
+		Type:      cyclonedx.ComponentTypeApplication,
 	}
 
 	// Set metadata
 	mergedBom.Metadata = &cyclonedx.Metadata{
 		Tools: &cyclonedx.ToolsChoice{
-			Tools: &[]cyclonedx.Tool{sbomctlTool},
+			Components: &[]cyclonedx.Component{sbomctlToolComponent},
 		},
 		Component: &mergedComponent,
 	}
@@ -72,10 +73,10 @@ func MergeSBOMs(inputFiles []string, outputFile string, componentName string, co
 			extractedTools, err := extractToolsFromJSON(file)
 			if err == nil && len(extractedTools) > 0 {
 				// Add the extracted tools to the BOM
-				if bom.Metadata.Tools.Tools == nil {
-					bom.Metadata.Tools.Tools = &[]cyclonedx.Tool{}
+				if bom.Metadata.Tools.Components == nil {
+					bom.Metadata.Tools.Components = &[]cyclonedx.Component{}
 				}
-				*bom.Metadata.Tools.Tools = append(*bom.Metadata.Tools.Tools, extractedTools...)
+				*bom.Metadata.Tools.Components = append(*bom.Metadata.Tools.Components, extractedTools...)
 			}
 		}
 
@@ -106,24 +107,24 @@ func MergeSBOMs(inputFiles []string, outputFile string, componentName string, co
 			}
 			*mergedBom.Dependencies = append(*mergedBom.Dependencies, *bom.Dependencies...)
 		}
+
 		// Merge tools if present
 		if bom.Metadata != nil && bom.Metadata.Tools != nil {
-			// Handle Tools field
-			if bom.Metadata.Tools.Tools != nil {
-				// Append tools from the source SBOM
-				*mergedBom.Metadata.Tools.Tools = append(*mergedBom.Metadata.Tools.Tools, *bom.Metadata.Tools.Tools...)
+			// Handle Components field (for tools)
+			if bom.Metadata.Tools.Components != nil {
+				*mergedBom.Metadata.Tools.Components = append(*mergedBom.Metadata.Tools.Components, *bom.Metadata.Tools.Components...)
 			}
 
-			// Handle Components field (for tools like Trivy)
-			if bom.Metadata.Tools.Components != nil {
-				// Convert Components to Tools
-				for _, component := range *bom.Metadata.Tools.Components {
-					tool := cyclonedx.Tool{
-						Name:    component.Name,
-						Version: component.Version,
-						Vendor:  component.Publisher,
+			// Handle deprecated Tools field (convert Tool to Component)
+			if bom.Metadata.Tools.Tools != nil {
+				for _, tool := range *bom.Metadata.Tools.Tools {
+					component := cyclonedx.Component{
+						Name:      tool.Name,
+						Version:   tool.Version,
+						Publisher: tool.Vendor,
+						Type:      cyclonedx.ComponentTypeApplication,
 					}
-					*mergedBom.Metadata.Tools.Tools = append(*mergedBom.Metadata.Tools.Tools, tool)
+					*mergedBom.Metadata.Tools.Components = append(*mergedBom.Metadata.Tools.Components, component)
 				}
 			}
 		}
@@ -135,9 +136,9 @@ func MergeSBOMs(inputFiles []string, outputFile string, componentName string, co
 	// Remove duplicate dependencies
 	mergedBom.Dependencies = deduplicateDependencies(mergedBom.Dependencies)
 
-	// Remove duplicate tools
-	if mergedBom.Metadata != nil && mergedBom.Metadata.Tools != nil && mergedBom.Metadata.Tools.Tools != nil {
-		mergedBom.Metadata.Tools.Tools = deduplicateTools(mergedBom.Metadata.Tools.Tools)
+	// Remove duplicate tool components
+	if mergedBom.Metadata != nil && mergedBom.Metadata.Tools != nil && mergedBom.Metadata.Tools.Components != nil {
+		mergedBom.Metadata.Tools.Components = deduplicateToolComponents(mergedBom.Metadata.Tools.Components)
 	}
 
 	// Create dependencies for metadata components
@@ -291,7 +292,7 @@ func deduplicateDependencies(dependencies *[]cyclonedx.Dependency) *[]cyclonedx.
 }
 
 // extractToolsFromJSON extracts tools directly from a JSON file
-func extractToolsFromJSON(filename string) ([]cyclonedx.Tool, error) {
+func extractToolsFromJSON(filename string) ([]cyclonedx.Component, error) {
 	// Read the file
 	data, err := os.ReadFile(filename)
 	if err != nil {
@@ -332,15 +333,16 @@ func extractToolsFromJSON(filename string) ([]cyclonedx.Tool, error) {
 		return nil, fmt.Errorf("failed to parse JSON: %w", err)
 	}
 
-	// Convert to cyclonedx.Tool
-	var tools []cyclonedx.Tool
+	// Convert to cyclonedx.Component
+	var components []cyclonedx.Component
 
 	// Process tools
 	for _, tool := range bomWrapper.Metadata.Tools.Tools {
-		tools = append(tools, cyclonedx.Tool{
-			Vendor:  tool.Vendor,
-			Name:    tool.Name,
-			Version: tool.Version,
+		components = append(components, cyclonedx.Component{
+			Name:      tool.Name,
+			Version:   tool.Version,
+			Publisher: tool.Vendor,
+			Type:      cyclonedx.ComponentTypeApplication,
 		})
 	}
 
@@ -351,44 +353,44 @@ func extractToolsFromJSON(filename string) ([]cyclonedx.Tool, error) {
 			vendor = component.Group
 		}
 
-		tools = append(tools, cyclonedx.Tool{
-			Vendor:  vendor,
-			Name:    component.Name,
-			Version: component.Version,
+		components = append(components, cyclonedx.Component{
+			Name:      component.Name,
+			Version:   component.Version,
+			Publisher: vendor,
+			Type:      cyclonedx.ComponentTypeApplication,
 		})
 	}
 
-	return tools, nil
+	return components, nil
 }
 
-// deduplicateTools removes duplicate tools from the BOM
-func deduplicateTools(tools *[]cyclonedx.Tool) *[]cyclonedx.Tool {
-	if tools == nil {
+// deduplicateToolComponents removes duplicate tool components from the BOM
+func deduplicateToolComponents(components *[]cyclonedx.Component) *[]cyclonedx.Component {
+	if components == nil {
 		return nil
 	}
 
-	// First pass: normalize tools and create a map of name+version -> best tool
-	// (prefer tools with vendor information)
-	toolMap := make(map[string]cyclonedx.Tool)
+	toolMap := make(map[string]cyclonedx.Component)
 
-	for _, tool := range *tools {
-		// Create a key using name and version (without vendor)
-		key := tool.Name
-		if tool.Version != "" {
-			key += "@" + tool.Version
+	for _, comp := range *components {
+		if comp.Type != cyclonedx.ComponentTypeApplication {
+			continue
 		}
 
-		// If this is the first time we've seen this tool, or if this tool has vendor info and the previous one didn't
-		existingTool, exists := toolMap[key]
-		if !exists || (tool.Vendor != "" && existingTool.Vendor == "") {
-			toolMap[key] = tool
+		key := comp.Name
+		if comp.Version != "" {
+			key += "@" + comp.Version
+		}
+
+		existing, exists := toolMap[key]
+		if !exists || (comp.Publisher != "" && existing.Publisher == "") {
+			toolMap[key] = comp
 		}
 	}
 
-	// Convert map back to slice
-	var unique []cyclonedx.Tool
-	for _, tool := range toolMap {
-		unique = append(unique, tool)
+	var unique []cyclonedx.Component
+	for _, comp := range toolMap {
+		unique = append(unique, comp)
 	}
 
 	return &unique
