@@ -14,6 +14,10 @@ var rootCmd = &cobra.Command{
 	Short: "A tool for managing Software Bill of Materials (SBOM)",
 	Long: `sbomctl is a CLI tool for managing Software Bill of Materials (SBOM).
 It provides various commands for working with SBOM files in CycloneDX format.`,
+	// Print help if no subcommand is specified
+	Run: func(cmd *cobra.Command, args []string) {
+		cmd.Help()
+	},
 }
 
 // Execute adds all child commands to the root command and sets flags appropriately.
