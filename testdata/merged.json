@@ -15,21 +15,28 @@
   },
   "components": [
     {
-      "bom-ref": "pkg:npm/example-lib-1@1.2.3",
+      "bom-ref": "urn:uuid:3e671687-395b-41f5-a30f-a58921a69b79/pkg:npm/example-lib-1@1.2.3",
       "type": "library",
       "name": "example-lib-1",
       "version": "1.2.3",
       "purl": "pkg:npm/example-lib-1@1.2.3"
     },
     {
-      "bom-ref": "pkg:npm/example-lib-2@2.3.4",
+      "bom-ref": "urn:uuid:3e671687-395b-41f5-a30f-a58921a69b79/pkg:npm/example-lib-2@2.3.4",
       "type": "library",
       "name": "example-lib-2",
       "version": "2.3.4",
       "purl": "pkg:npm/example-lib-2@2.3.4"
     },
     {
-      "bom-ref": "pkg:npm/example-lib-3@3.4.5",
+      "bom-ref": "urn:uuid:4f782798-486a-52e6-b40f-b59032a70b80/pkg:npm/example-lib-2@2.3.4",
+      "type": "library",
+      "name": "example-lib-2",
+      "version": "2.3.4",
+      "purl": "pkg:npm/example-lib-2@2.3.4"
+    },
+    {
+      "bom-ref": "urn:uuid:4f782798-486a-52e6-b40f-b59032a70b80/pkg:npm/example-lib-3@3.4.5",
       "type": "library",
       "name": "example-lib-3",
       "version": "3.4.5",
@@ -38,17 +45,21 @@
   ],
   "dependencies": [
     {
-      "ref": "pkg:npm/example-lib-1@1.2.3",
+      "ref": "urn:uuid:3e671687-395b-41f5-a30f-a58921a69b79/pkg:npm/example-lib-1@1.2.3",
       "dependsOn": []
     },
     {
-      "ref": "pkg:npm/example-lib-2@2.3.4",
+      "ref": "urn:uuid:3e671687-395b-41f5-a30f-a58921a69b79/pkg:npm/example-lib-2@2.3.4",
+      "dependsOn": []
+    },
+    {
+      "ref": "urn:uuid:4f782798-486a-52e6-b40f-b59032a70b80/pkg:npm/example-lib-2@2.3.4",
       "dependsOn": [
-        "pkg:npm/example-lib-3@3.4.5"
+        "urn:uuid:4f782798-486a-52e6-b40f-b59032a70b80/pkg:npm/example-lib-3@3.4.5"
       ]
     },
     {
-      "ref": "pkg:npm/example-lib-3@3.4.5",
+      "ref": "urn:uuid:4f782798-486a-52e6-b40f-b59032a70b80/pkg:npm/example-lib-3@3.4.5",
       "dependsOn": []
     }
   ]

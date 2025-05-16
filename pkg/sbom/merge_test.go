@@ -1235,3 +1235,105 @@ func TestMergeSBOMsDeduplicatesTools(t *testing.T) {
 		t.Errorf("Expected Common Tool to appear once, but it appeared %d times", commonToolCount)
 	}
 }
+
+func TestMergeSBOMs_PrefixedRefs(t *testing.T) {
+	testDir := filepath.Join(os.TempDir(), "sbomctl-test-prefixed-refs")
+	err := os.MkdirAll(testDir, 0755)
+	if err != nil {
+		t.Fatalf("Failed to create test directory: %v", err)
+	}
+	defer os.RemoveAll(testDir)
+
+	sbom1Path := filepath.Join(testDir, "sbom1.json")
+	sbom2Path := filepath.Join(testDir, "sbom2.json")
+	outputPath := filepath.Join(testDir, "merged.json")
+
+	sn1 := "urn:uuid:serial-1"
+	sn2 := "urn:uuid:serial-2"
+
+	sbom1 := cyclonedx.NewBOM()
+	sbom1.SerialNumber = sn1
+	sbom1.Components = &[]cyclonedx.Component{
+		{
+			BOMRef:  "pkg:npm/foo@1.0.0",
+			Name:    "foo",
+			Version: "1.0.0",
+			Type:    cyclonedx.ComponentTypeLibrary,
+		},
+		{
+			BOMRef:  "pkg:npm/bar@2.0.0",
+			Name:    "bar",
+			Version: "2.0.0",
+			Type:    cyclonedx.ComponentTypeLibrary,
+		},
+	}
+	sbom1.Dependencies = &[]cyclonedx.Dependency{
+		{
+			Ref:          "pkg:npm/foo@1.0.0",
+			Dependencies: &[]string{"pkg:npm/bar@2.0.0"},
+		},
+	}
+
+	sbom2 := cyclonedx.NewBOM()
+	sbom2.SerialNumber = sn2
+	sbom2.Components = &[]cyclonedx.Component{
+		{
+			BOMRef:  "pkg:npm/bar@2.0.0",
+			Name:    "bar",
+			Version: "2.0.0",
+			Type:    cyclonedx.ComponentTypeLibrary,
+		},
+		{
+			BOMRef:  "pkg:npm/baz@3.0.0",
+			Name:    "baz",
+			Version: "3.0.0",
+			Type:    cyclonedx.ComponentTypeLibrary,
+		},
+	}
+	sbom2.Dependencies = &[]cyclonedx.Dependency{
+		{
+			Ref:          "pkg:npm/bar@2.0.0",
+			Dependencies: &[]string{"pkg:npm/baz@3.0.0"},
+		},
+	}
+
+	if err := WriteSBOMFile(sbom1, sbom1Path); err != nil {
+		t.Fatalf("Failed to write test SBOM 1: %v", err)
+	}
+	if err := WriteSBOMFile(sbom2, sbom2Path); err != nil {
+		t.Fatalf("Failed to write test SBOM 2: %v", err)
+	}
+
+	err = MergeSBOMs([]string{sbom1Path, sbom2Path}, outputPath, "", "")
+	if err != nil {
+		t.Fatalf("Failed to merge SBOMs: %v", err)
+	}
+
+	mergedBom, err := ReadSBOMFile(outputPath)
+	if err != nil {
+		t.Fatalf("Failed to read merged SBOM: %v", err)
+	}
+
+	// Check that all bom-refs and dependency refs are prefixed
+	for _, c := range *mergedBom.Components {
+		if c.BOMRef != "" && !(c.BOMRef == "merged-sbom" || c.BOMRef == mergedBom.Metadata.Component.BOMRef) {
+			if !(len(c.BOMRef) > 10 && (c.BOMRef[:len(sn1)] == sn1 || c.BOMRef[:len(sn2)] == sn2)) {
+				t.Errorf("Component BOMRef not prefixed: %s", c.BOMRef)
+			}
+		}
+	}
+	for _, d := range *mergedBom.Dependencies {
+		if d.Ref != "" && d.Ref != mergedBom.Metadata.Component.BOMRef {
+			if !(len(d.Ref) > 10 && (d.Ref[:len(sn1)] == sn1 || d.Ref[:len(sn2)] == sn2)) {
+				t.Errorf("Dependency ref not prefixed: %s", d.Ref)
+			}
+		}
+		if d.Dependencies != nil {
+			for _, dep := range *d.Dependencies {
+				if !(len(dep) > 10 && (dep[:len(sn1)] == sn1 || dep[:len(sn2)] == sn2)) {
+					t.Errorf("dependsOn ref not prefixed: %s", dep)
+				}
+			}
+		}
+	}
+}

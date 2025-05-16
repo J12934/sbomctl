@@ -67,12 +67,24 @@ func MergeSBOMs(inputFiles []string, outputFile string, componentName string, co
 			return fmt.Errorf("failed to read SBOM file %s: %w", file, err)
 		}
 
+		serial := ""
+		if bom.SerialNumber != "" {
+			serial = bom.SerialNumber
+		}
+
+		// Helper to prefix a ref with the serial number
+		prefixRef := func(ref string) string {
+			if ref == "" || serial == "" {
+				return ref
+			}
+			return serial + "/" + ref
+		}
+
 		// Extract tools directly from the JSON file if needed
 		if bom.Metadata != nil && bom.Metadata.Tools != nil && bom.Metadata.Tools.Tools == nil {
 			// Try to extract tools directly from the JSON
 			extractedTools, err := extractToolsFromJSON(file)
 			if err == nil && len(extractedTools) > 0 {
-				// Add the extracted tools to the BOM
 				if bom.Metadata.Tools.Components == nil {
 					bom.Metadata.Tools.Components = &[]cyclonedx.Component{}
 				}
@@ -82,30 +94,44 @@ func MergeSBOMs(inputFiles []string, outputFile string, componentName string, co
 
 		// Check if the SBOM has a metadata.component
 		if bom.Metadata != nil && bom.Metadata.Component != nil {
-			// Add the metadata component to our tracking list
-			metadataComponents = append(metadataComponents, *bom.Metadata.Component)
-
-			// Add the metadata component to the components list if it's not already there
+			// Prefix the BOMRef
+			comp := *bom.Metadata.Component
+			comp.BOMRef = prefixRef(comp.BOMRef)
+			metadataComponents = append(metadataComponents, comp)
 			if mergedBom.Components == nil {
 				mergedBom.Components = &[]cyclonedx.Component{}
 			}
-			*mergedBom.Components = append(*mergedBom.Components, *bom.Metadata.Component)
+			*mergedBom.Components = append(*mergedBom.Components, comp)
 		}
 
-		// Merge components
+		// Merge components, prefixing bom-ref
 		if bom.Components != nil {
 			if mergedBom.Components == nil {
 				mergedBom.Components = &[]cyclonedx.Component{}
 			}
-			*mergedBom.Components = append(*mergedBom.Components, *bom.Components...)
+			for _, c := range *bom.Components {
+				c.BOMRef = prefixRef(c.BOMRef)
+				*mergedBom.Components = append(*mergedBom.Components, c)
+			}
 		}
 
-		// Merge dependencies if present
+		// Merge dependencies, prefixing ref and dependsOn
 		if bom.Dependencies != nil {
 			if mergedBom.Dependencies == nil {
 				mergedBom.Dependencies = &[]cyclonedx.Dependency{}
 			}
-			*mergedBom.Dependencies = append(*mergedBom.Dependencies, *bom.Dependencies...)
+			for _, d := range *bom.Dependencies {
+				newDep := d
+				newDep.Ref = prefixRef(d.Ref)
+				if d.Dependencies != nil {
+					newDependsOn := make([]string, 0, len(*d.Dependencies))
+					for _, dep := range *d.Dependencies {
+						newDependsOn = append(newDependsOn, prefixRef(dep))
+					}
+					newDep.Dependencies = &newDependsOn
+				}
+				*mergedBom.Dependencies = append(*mergedBom.Dependencies, newDep)
+			}
 		}
 
 		// Merge tools if present
@@ -143,23 +169,16 @@ func MergeSBOMs(inputFiles []string, outputFile string, componentName string, co
 
 	// Create dependencies for metadata components
 	if len(metadataComponents) > 0 {
-		// Ensure we have a dependencies section
 		if mergedBom.Dependencies == nil {
 			mergedBom.Dependencies = &[]cyclonedx.Dependency{}
 		}
-
-		// Create a dependency from the merged SBOM to each metadata component
 		mergedBomDependency := cyclonedx.Dependency{
 			Ref:          mergedBomRef,
 			Dependencies: &[]string{},
 		}
-
-		// Add each metadata component as a dependency
 		for _, comp := range metadataComponents {
 			*mergedBomDependency.Dependencies = append(*mergedBomDependency.Dependencies, comp.BOMRef)
 		}
-
-		// Add the merged SBOM dependency to the dependencies list
 		*mergedBom.Dependencies = append(*mergedBom.Dependencies, mergedBomDependency)
 	}
 
@@ -217,20 +236,21 @@ func deduplicateComponents(components *[]cyclonedx.Component) *[]cyclonedx.Compo
 		return nil
 	}
 
-	// Use a map to track unique components by their PURL
+	// Use a map to track unique components by their BOMRef
 	seen := make(map[string]bool)
 	var unique []cyclonedx.Component
 
 	for _, component := range *components {
-		// Use PURL as the unique identifier if available, otherwise use name+version
-		key := component.PackageURL
+		key := component.BOMRef
 		if key == "" {
-			key = component.Name
-			if component.Version != "" {
-				key += "@" + component.Version
+			key = component.PackageURL
+			if key == "" {
+				key = component.Name
+				if component.Version != "" {
+					key += "@" + component.Version
+				}
 			}
 		}
-
 		if !seen[key] {
 			seen[key] = true
 			unique = append(unique, component)
@@ -250,21 +270,16 @@ func deduplicateDependencies(dependencies *[]cyclonedx.Dependency) *[]cyclonedx.
 	// Map to store unique dependencies by ref
 	depMap := make(map[string]*cyclonedx.Dependency)
 
-	// Process each dependency
 	for _, dep := range *dependencies {
-		// If we haven't seen this ref before, add it to the map
-		if existing, exists := depMap[dep.Ref]; !exists {
-			// Create a copy of the dependency
+		key := dep.Ref
+		if existing, exists := depMap[key]; !exists {
 			newDep := dep
-			depMap[dep.Ref] = &newDep
+			depMap[key] = &newDep
 		} else {
-			// Merge dependsOn lists if both exist
 			if dep.Dependencies != nil && len(*dep.Dependencies) > 0 {
 				if existing.Dependencies == nil {
 					existing.Dependencies = &[]string{}
 				}
-
-				// Add each dependency if it doesn't already exist
 				for _, d := range *dep.Dependencies {
 					found := false
 					for _, existingDep := range *existing.Dependencies {
@@ -273,7 +288,6 @@ func deduplicateDependencies(dependencies *[]cyclonedx.Dependency) *[]cyclonedx.
 							break
 						}
 					}
-
 					if !found {
 						*existing.Dependencies = append(*existing.Dependencies, d)
 					}
@@ -282,7 +296,6 @@ func deduplicateDependencies(dependencies *[]cyclonedx.Dependency) *[]cyclonedx.
 		}
 	}
 
-	// Convert map back to slice
 	var result []cyclonedx.Dependency
 	for _, dep := range depMap {
 		result = append(result, *dep)
